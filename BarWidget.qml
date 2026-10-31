@@ -71,6 +71,12 @@ Ui.BarWidget {
         var offset = (first.getDay() + 6) % 7
         return new Date(first.getFullYear(), first.getMonth(), 1 - offset + index, 12)
     }
+    function dateLabel(value) {
+        var parts = (value || "").split("-")
+        if (parts.length !== 3) return value || "Today"
+        var date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12)
+        return Qt.formatDate(date, "dddd, d MMMM yyyy")
+    }
     function stepDate(days) {
         var parts = (root.report.date || dateField.text).split("-")
         if (parts.length !== 3) return
@@ -140,7 +146,7 @@ Ui.BarWidget {
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
-        tooltipText: "ServiceM8 jobs · " + (root.report.date || "Today") + " · " + (root.report.staff_name || "Choose staff") + "\nClick to view · Right-click to refresh"
+        tooltipText: "ServiceM8 jobs · " + root.dateLabel(root.report.date) + " · " + (root.report.staff_name || "Choose staff") + "\nClick to view · Right-click to refresh"
         onPressed: function(b) { if (b === Qt.RightButton || b === Qt.MiddleButton) root.refresh(true); else root.toggle() }
     }
     Ui.KeyboardPanel {
@@ -161,8 +167,8 @@ Ui.BarWidget {
                 id: header
                 width: parent.width
                 spacing: 8
-                Text { text: root.selectedDate ? "My Jobs · " + root.selectedDate : "My Jobs Today"; color: root.ink; font.pixelSize: 23; font.bold: true }
-                Text { text: (root.report.staff_name || "Choose staff") + " · " + (root.report.date || "") + " · Brisbane time"; color: root.ink; opacity: 0.7; font.pixelSize: 12 }
+                Text { text: root.selectedDate ? "My Jobs" : "My Jobs Today"; color: root.ink; font.pixelSize: 23; font.bold: true }
+                Text { width: parent.width; text: (root.report.staff_name || "Choose staff") + " · " + root.dateLabel(root.report.date) + " · Brisbane time"; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: root.ink; opacity: 0.7; font.pixelSize: 12 }
                 Row {
                     width: parent.width
                     spacing: 8
