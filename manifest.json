@@ -2,10 +2,19 @@
   "schemaVersion": 1,
   "id": "servicem8.jobs",
   "name": "My Jobs Today",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "My Jobs Today contributors",
-  "description": "Today's ServiceM8 jobs assigned to Example Staff",
-  "kinds": ["bar-widget"],
-  "entryPoints": {"barWidget": "BarWidget.qml"},
-  "barWidget": {"displayName": "My Jobs Today", "description": "ServiceM8 schedule", "category": "Info", "allowMultiple": false}
+  "description": "ServiceM8 jobs with staff selection and calendar browsing",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "My Jobs Today",
+    "description": "ServiceM8 schedule",
+    "category": "Info",
+    "allowMultiple": false
+  }
 }

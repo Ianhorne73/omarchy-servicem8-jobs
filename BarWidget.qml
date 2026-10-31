@@ -110,7 +110,7 @@ Ui.BarWidget {
         id: button
         anchors.fill: parent
         bar: root.bar
-        text: root.report.needs_setup ? "Setup" : root.report.error ? "!" : root.busy && !root.report.updated ? "…" : String(root.report.jobs.length)
+        text: root.report.needs_setup ? "Setup" : root.report.needs_staff ? "—" : root.report.error ? "!" : root.busy && !root.report.updated ? "…" : String(root.report.jobs.length)
         labelVisible: false
         fixedWidth: root.vertical ? -1 : logoRow.implicitWidth + Style.space(17)
         fixedHeight: root.vertical ? logoRow.implicitHeight + Style.space(12) : -1
@@ -140,7 +140,7 @@ Ui.BarWidget {
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
-        tooltipText: "ServiceM8 jobs · " + (root.report.date || "Today") + " · " + (root.report.staff_name || "Example Staff") + "\nClick to view · Right-click to refresh"
+        tooltipText: "ServiceM8 jobs · " + (root.report.date || "Today") + " · " + (root.report.staff_name || "Choose staff") + "\nClick to view · Right-click to refresh"
         onPressed: function(b) { if (b === Qt.RightButton || b === Qt.MiddleButton) root.refresh(true); else root.toggle() }
     }
     Ui.KeyboardPanel {
@@ -162,16 +162,17 @@ Ui.BarWidget {
                 width: parent.width
                 spacing: 8
                 Text { text: root.selectedDate ? "My Jobs · " + root.selectedDate : "My Jobs Today"; color: root.ink; font.pixelSize: 23; font.bold: true }
-                Text { text: (root.report.staff_name || "Example Staff") + " · " + (root.report.date || "") + " · Brisbane time"; color: root.ink; opacity: 0.7; font.pixelSize: 12 }
+                Text { text: (root.report.staff_name || "Choose staff") + " · " + (root.report.date || "") + " · Brisbane time"; color: root.ink; opacity: 0.7; font.pixelSize: 12 }
                 Row {
                     width: parent.width
                     spacing: 8
                     ComboBox {
                         id: staffPicker
+                        displayText: currentIndex < 0 ? "Choose staff member…" : currentText
                         width: parent.width - defaultButton.width - 8
                         model: root.report.staff || []
                         textRole: "name"
-                        enabled: !root.busy
+                        enabled: !root.busy && (root.report.staff || []).length > 0
                         currentIndex: {
                             var people = root.report.staff || []
                             for (var i = 0; i < people.length; i++)
@@ -220,7 +221,7 @@ Ui.BarWidget {
                 Text {
                     width: parent.width
                     visible: text !== ""
-                    text: root.report.error || (root.report.updated ? "Updated " + root.report.updated + " · refreshes every 4 minutes" : "")
+                    text: root.report.error || (root.report.needs_staff ? "Choose a staff member, then Set default to remember your choice." : root.report.updated ? "Updated " + root.report.updated + " · refreshes every 4 minutes" : "")
                     textFormat: Text.PlainText
                     wrapMode: Text.Wrap
                     color: root.ink
@@ -233,7 +234,7 @@ Ui.BarWidget {
                     spacing: 8
                     Text {
                         width: parent.width
-                        text: "Create a key in ServiceM8 → Settings → API Keys, with read access to schedules, jobs and customers. Paste it below."
+                        text: "Create a key in ServiceM8 → Settings → API Keys, with read access to staff, schedules, jobs and customers. Paste it below."
                         textFormat: Text.PlainText
                         color: root.ink; wrapMode: Text.Wrap; font.pixelSize: 13
                     }
@@ -316,7 +317,7 @@ Ui.BarWidget {
                     width: parent.width
                     spacing: 10
                     Text {
-                        visible: root.report.jobs.length === 0 && !root.report.error && !root.busy
+                        visible: root.report.jobs.length === 0 && !root.report.needs_setup && !root.report.needs_staff && !root.report.error && !root.busy
                         text: "No jobs assigned for " + (root.report.date || "this date") + "."
                         color: root.ink
                         font.pixelSize: 15

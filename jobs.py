@@ -4,6 +4,7 @@ import argparse
 import uuid
 import datetime as dt
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,12 +15,6 @@ import urllib.parse
 import urllib.request
 from zoneinfo import ZoneInfo
 
-STAFF = '00000000-0000-4000-8000-000000000101'
-KNOWN_STAFF = [
-    {'uuid': STAFF, 'name': 'Example Staff'},
-    {'uuid': '00000000-0000-4000-8000-000000000102', 'name': 'Example Staff Two'},
-    {'uuid': '00000000-0000-4000-8000-000000000103', 'name': 'Example Staff Three'},
-]
 TZ = ZoneInfo('Australia/Brisbane')
 CONFIG = Path.home() / '.config/omarchy/servicem8'
 STATE = Path.home() / '.cache/omarchy/servicem8'
@@ -77,7 +72,7 @@ def parse_date(value):
         return None
 
 
-def scheduled_jobs(api, now, staff=STAFF, selected_date=None):
+def scheduled_jobs(api, now, staff, selected_date=None):
     target = dt.date.fromisoformat(selected_date) if selected_date else now.date()
     start = dt.datetime.combine(target, dt.time.min, tzinfo=TZ)
     allocation_cutoff = now if target == now.date() else start
@@ -131,7 +126,7 @@ def scheduled_jobs(api, now, staff=STAFF, selected_date=None):
 def friendly_error(error):
     if isinstance(error, urllib.error.HTTPError):
         return {401: 'API key was rejected. Check the key in Setup.',
-                403: 'API key needs read access to schedules, jobs and customers.',
+                403: 'API key needs read access to staff, schedules, jobs and customers.',
                 429: 'ServiceM8 rate limit reached. Try again in a few minutes.'}.get(
                     error.code, f'ServiceM8 returned HTTP {error.code}. Try again shortly.')
     if isinstance(error, (urllib.error.URLError, TimeoutError, OSError)):
@@ -139,74 +134,95 @@ def friendly_error(error):
     return 'Could not load the schedule. Please refresh or check API access.'
 
 
+def read_json(path):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def staff_list(api):
+    people = []
+    for person in api.rows('staff', 'active eq 1'):
+        if str(person.get('active', 1)) != '1':
+            continue
+        people.append({'uuid': str(uuid.UUID(person['uuid'])),
+                       'name': ' '.join(filter(None, [person.get('first'), person.get('last')])).strip() or 'Staff member'})
+    return sorted(people, key=lambda person: person['name'].casefold())
+
+
 def run(force=False, save=False, staff=None, default_staff=None, selected_date=None):
     now = dt.datetime.now(TZ)
     date = dt.date.fromisoformat(selected_date).isoformat() if selected_date else now.date().isoformat()
+    blank = {'today': now.date().isoformat(), 'date': date, 'jobs': [], 'staff': [],
+             'staff_uuid': '', 'staff_name': '', 'default_staff': '',
+             'needs_setup': False, 'needs_staff': False, 'error': ''}
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (STATE / 'refresh.lock').open('a') as lock:
         os.chmod(STATE / 'refresh.lock', 0o600)
         fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            preferences = json.loads((CONFIG / 'preferences.json').read_text())
-        except (OSError, ValueError):
-            preferences = {}
-        people = preferences.get('staff', KNOWN_STAFF)
-        if default_staff:
-            default_staff = str(uuid.UUID(default_staff))
-            if default_staff not in [person['uuid'] for person in people]:
-                raise ValueError('Unknown staff member')
-            preferences['default_staff'] = default_staff
-            atomic_json(CONFIG / 'preferences.json', preferences)
-        default = preferences.get('default_staff', STAFF)
-        staff = str(uuid.UUID(staff or default))
-        metadata = {'today': now.date().isoformat(), 'staff': people, 'staff_uuid': staff, 'default_staff': default,
-                    'staff_name': next((person['name'] for person in people if person['uuid'] == staff), 'Staff member')}
-        cache_path = STATE / ('jobs-' + staff + '-' + date + '.json')
-        try:
-            cache = json.loads(cache_path.read_text())
-        except (OSError, ValueError):
-            cache = {}
-        if cache.get('date') != date:
-            cache = {}
-        if save:
-            key = sys.stdin.readline().strip()
-            if not key:
-                return {**metadata, 'date': date, 'jobs': [], 'needs_setup': True, 'error': 'Enter an API key.'}
-        else:
-            try:
-                key = json.loads((CONFIG / 'credentials.json').read_text())['api_key']
-            except (OSError, ValueError, KeyError):
-                return {**metadata, 'date': date, 'jobs': [], 'needs_setup': True, 'error': 'Connect ServiceM8 in Setup.'}
-        if not force and not save and cache and now.timestamp() - cache.get('fetched_at', 0) < 240:
-            return {**cache, **metadata}
+        stored_key = read_json(CONFIG / 'credentials.json').get('api_key', '')
+        key = sys.stdin.readline().strip() if save else stored_key
+        if not key:
+            return {**blank, 'needs_setup': True,
+                    'error': 'Enter an API key.' if save else 'Connect ServiceM8 in Setup.'}
+        # Scope both preferences and job caches to the entered credential. An
+        # account change must never reuse another account's staff or jobs.
+        account = hashlib.sha256(key.encode()).hexdigest()[:24]
+        preferences = read_json(CONFIG / 'preferences.json')
+        known_account = preferences.get('account')
+        if known_account != account:
+            # Preserve existing local defaults during the upgrade, but never
+            # when a new key is replacing the saved account.
+            if known_account is not None or (save and key != stored_key):
+                preferences = {}
+        if save and key != stored_key:
+            staff = default_staff = None
+        people = preferences.get('staff', [])
+        cache = {}
+        metadata = dict(blank)
         try:
             api = Api(key)
+            if save or force or not people or known_account != account:
+                people = staff_list(api)
+            ids = {person['uuid'] for person in people}
+            default = preferences.get('default_staff', '')
+            if default not in ids:
+                default = ''
+            if default_staff:
+                proposed = str(uuid.UUID(default_staff))
+                if proposed not in ids:
+                    raise ValueError('Staff member is not part of this account')
+                default = proposed
+            selected = str(uuid.UUID(staff)) if staff else default
+            if selected and selected not in ids:
+                selected = ''
+            metadata.update(staff=people, default_staff=default, staff_uuid=selected,
+                            staff_name=next((person['name'] for person in people if person['uuid'] == selected), ''),
+                            needs_staff=not bool(selected))
+            preferences = {'account': account, 'staff': people, 'default_staff': default}
             if save:
-                api.one('staff', STAFF)
-            # Refresh the staff menu when fetching schedules; a restricted key
-            # may still read jobs even when it cannot list staff.
-            try:
-                people = [{'uuid': str(uuid.UUID(person['uuid'])),
-                           'name': (person.get('first') or '') + ' ' + (person.get('last') or '')}
-                          for person in api.rows('staff', 'active eq 1')]
-                people = [{**person, 'name': person['name'].strip() or 'Staff member'} for person in people]
-                if people:
-                    preferences['staff'] = sorted(people, key=lambda person: person['name'])
-                    atomic_json(CONFIG / 'preferences.json', preferences)
-                    metadata['staff'] = preferences['staff']
-                    metadata['staff_name'] = next((person['name'] for person in people if person['uuid'] == staff), metadata['staff_name'])
-            except (OSError, ValueError, KeyError):
-                pass
-            jobs = scheduled_jobs(api, now, staff, date)
-            if save:
+                # Listing staff validates against the entered account without
+                # relying on an ID belonging to the plugin's author.
                 atomic_json(CONFIG / 'credentials.json', {'api_key': key})
-            result = {**metadata, 'date': date, 'jobs': jobs, 'fetched_at': now.timestamp(),
-                      'updated': now.strftime('%H:%M'), 'needs_setup': False, 'error': ''}
+            atomic_json(CONFIG / 'preferences.json', preferences)
+            if not selected:
+                return {**metadata, 'error': '' if people else 'No active staff found in this ServiceM8 account.'}
+            cache_path = STATE / ('jobs-' + account + '-' + selected + '-' + date + '.json')
+            cache = read_json(cache_path)
+            if cache.get('date') != date:
+                cache = {}
+            if not force and not save and cache and now.timestamp() - cache.get('fetched_at', 0) < 240:
+                return {**cache, **{k: v for k, v in metadata.items() if k != 'jobs'}}
+            jobs = scheduled_jobs(api, now, selected, date)
+            result = {**metadata, 'jobs': jobs, 'fetched_at': now.timestamp(), 'updated': now.strftime('%H:%M')}
             atomic_json(cache_path, result)
             return result
         except Exception as error:
-            return {**cache, **metadata, 'date': date, 'jobs': cache.get('jobs', []),
-                    'needs_setup': save, 'error': friendly_error(error)}
+            if save:
+                return {**blank, 'needs_setup': True, 'error': friendly_error(error)}
+            return {**cache, **{k: v for k, v in metadata.items() if k != 'jobs'},
+                    'jobs': cache.get('jobs', []), 'error': friendly_error(error)}
 
 
 if __name__ == '__main__':
