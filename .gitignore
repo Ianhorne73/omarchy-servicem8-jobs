@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.env
+.env.*
+credentials.json
+preferences.json
+jobs-*.json
+*.log
+menubar-preview.html
