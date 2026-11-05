@@ -51,6 +51,8 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertIn('23:00–01:00', result[0]['time'])
         self.assertIn('09:00–10:00', result[0]['time'])
+        self.assertEqual(result[0]['appointments'][1], {'start': '2026-10-31T09:00:00+10:00', 'end': '2026-10-31T10:00:00+10:00'})
+        self.assertEqual(result[0]['starts'], ['2026-10-30T23:00:00+10:00', '2026-10-31T09:00:00+10:00'])
     def test_flexible_carry_forward_completed_expired(self):
         base = dict(job_uuid=A, staff_uuid=STAFF, active=1, allocation_date='2026-10-30 09:00:00')
         rows = [base, {**base, 'job_uuid': B, 'completion_timestamp': '2026-10-31 08:00:00'},
@@ -58,6 +60,7 @@ class ScheduleTests(unittest.TestCase):
         result = m.scheduled_jobs(FakeApi(allocations=rows), NOW, STAFF)
         self.assertEqual([j['uuid'] for j in result], [A])
         self.assertIn('carried forward', result[0]['time'])
+        self.assertEqual(result[0]['starts'], [])
     def test_utc_to_brisbane(self):
         self.assertEqual(m.parse_date('2026-10-30T15:00:00Z').date(), NOW.date())
         self.assertIsNone(m.parse_date('0000-00-00 00:00:00'))
@@ -76,6 +79,40 @@ class ScheduleTests(unittest.TestCase):
                 result = m.run(force=True)
                 self.assertEqual(result['jobs'], [])
                 self.assertTrue(result['error'])
+
+class PhoneTests(unittest.TestCase):
+    def test_only_active_site_contacts_and_deduplicated_numbers(self):
+        contacts = [
+            {'job_uuid': A, 'type': 'JOB', 'first': 'Site', 'mobile': '0400 000 000', 'phone': '0400000000'},
+            {'job_uuid': A, 'type': 'BILLING', 'mobile': '0400111111'},
+            {'job_uuid': B, 'type': 'JOB', 'mobile': '0400222222'},
+            {'job_uuid': A, 'type': 'JOB', 'active': 0, 'mobile': '0400333333'},
+        ]
+        api = FakeApi()
+        with patch.object(api, 'rows', return_value=contacts):
+            phones, error = m.job_phones(api, {'uuid': A})
+        self.assertEqual(error, '')
+        self.assertEqual(phones, [{'number': '0400 000 000', 'label': 'Site · Mobile'}])
+
+    def test_missing_contact_permission_keeps_schedule_available(self):
+        api = FakeApi([activity()])
+        original = api.rows
+        def rows(resource, expression):
+            if resource == 'jobcontact':
+                raise m.urllib.error.HTTPError('https://example.invalid', 403, 'Forbidden', {}, None)
+            return original(resource, expression)
+        with patch.object(api, 'rows', side_effect=rows):
+            result = m.scheduled_jobs(api, NOW, STAFF)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['phones'], [])
+        self.assertIn('Job Contacts read access', result[0]['phone_error'])
+
+    def test_contact_network_failure_is_optional(self):
+        api = FakeApi()
+        with patch.object(api, 'rows', side_effect=m.urllib.error.URLError('offline')):
+            phones, error = m.job_phones(api, {'uuid': A})
+        self.assertEqual(phones, [])
+        self.assertIn('Refresh', error)
 
 class UserSelectionTests(unittest.TestCase):
     def test_selected_staff_filter(self):
@@ -207,3 +244,97 @@ class AccountSetupTests(unittest.TestCase):
         self.assertEqual(m.read_json(self.config/'preferences.json')['account'], ACCOUNT)
 
 if __name__ == '__main__': unittest.main()
+
+
+class AlertTests(unittest.TestCase):
+    def job(self, uid=A, time='09:00–10:00'):
+        return {'uuid': uid, 'number': '123', 'customer': 'Test client', 'time': time,
+                'appointments': [{'start': time, 'end': time}]}
+
+    def test_initial_baseline_and_unchanged_are_silent(self):
+        snapshot, events = m.schedule_changes(None, [self.job()])
+        self.assertEqual(events, [])
+        self.assertEqual(m.schedule_changes(snapshot, [self.job()])[1], [])
+
+    def test_added_moved_removed(self):
+        snapshot, _ = m.schedule_changes(None, [self.job()])
+        _, events = m.schedule_changes(snapshot, [self.job(time='11:00–12:00'), self.job(B)])
+        self.assertEqual([event[1] for event in events], ['Appointment moved', 'New job assigned'])
+        _, events = m.schedule_changes(snapshot, [])
+        self.assertEqual(events[0][1], 'Job removed from your schedule')
+
+    def test_completed_status_does_not_trigger_schedule_alert(self):
+        snapshot, _ = m.schedule_changes(None, [self.job()])
+        self.assertEqual(m.schedule_changes(snapshot, [{**self.job(), 'status': 'Completed'}])[1], [])
+
+    def test_notifications_are_deduplicated_under_persisted_baseline(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(m, 'STATE', Path(folder)), patch.object(m.subprocess, 'Popen') as notify, patch.object(m, 'omarchy_session', return_value='shell-session'):
+            m.poll_notifications('account', A, '2026-11-05', [self.job()])
+            notify.assert_not_called()
+            m.poll_notifications('account', A, '2026-11-05', [self.job(B)])
+            self.assertEqual(notify.call_count, 2)
+            m.poll_notifications('account', A, '2026-11-05', [self.job(B)])
+            self.assertEqual(notify.call_count, 2)
+            m.poll_notifications('account', A, '2026-11-06', [self.job()])
+            self.assertEqual(notify.call_count, 2)
+
+    def test_toggle_persists_and_default_change_resets_baseline(self):
+        with tempfile.TemporaryDirectory() as folder:
+            config, state = Path(folder)/'config', Path(folder)/'state'
+            seed(config)
+            with patch.object(m, 'CONFIG', config), patch.object(m, 'STATE', state), patch.object(m, 'scheduled_jobs', return_value=[]):
+                self.assertFalse(m.run()['alerts_enabled'])
+                self.assertTrue(m.run(alerts='on')['alerts_enabled'])
+                self.assertTrue(m.run()['alerts_enabled'])
+                baseline = state/('alerts-'+ACCOUNT+'-'+A+'-2000-01-01.json')
+                m.atomic_json(baseline, {'jobs': {}})
+                self.assertTrue(m.run(default_staff=B)['alerts_enabled'])
+                self.assertFalse(baseline.exists())
+                self.assertFalse(m.run(alerts='off')['alerts_enabled'])
+                self.assertFalse(m.run()['alerts_enabled'])
+
+
+class AlertSessionTests(unittest.TestCase):
+    def test_login_restart_and_resume_do_not_replay(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(m, 'STATE', Path(folder)), patch.object(m.subprocess, 'Popen') as notify, patch.object(m.time, 'time', return_value=1000) as clock:
+            first = {'uuid': A, 'number': '1', 'customer': 'Example', 'time': '09:00', 'appointments': []}
+            second = {**first, 'time': '10:00'}
+            m.poll_notifications('account', A, '2026-11-05', [first], session='login-one')
+            clock.return_value = 1060
+            m.poll_notifications('account', A, '2026-11-05', [second], session='login-two')
+            notify.assert_not_called()
+            clock.return_value = 1120
+            m.poll_notifications('account', A, '2026-11-05', [first], session='login-two')
+            self.assertEqual(notify.call_count, 1)
+            clock.return_value = 2000
+            m.poll_notifications('account', A, '2026-11-05', [second], session='login-two')
+            self.assertEqual(notify.call_count, 1)
+
+    def test_no_alerts_outside_omarchy(self):
+        with patch.object(m, 'omarchy_session', return_value=None), patch.object(m.subprocess, 'Popen') as notify, patch.object(m, 'atomic_json') as save:
+            m.poll_notifications('account', A, '2026-11-05', [])
+            notify.assert_not_called()
+            save.assert_not_called()
+
+
+class WeekTests(unittest.TestCase):
+    def test_monday_to_sunday_across_year_boundary(self):
+        self.assertEqual(m.week_dates('2027-01-01'), ['2026-12-28', '2026-12-29', '2026-12-30', '2026-12-31', '2027-01-01', '2027-01-02', '2027-01-03'])
+        self.assertEqual(m.week_dates('2026-11-08')[0], '2026-11-02')
+
+    def test_week_uses_selected_staff_and_reuses_anchor(self):
+        def day(**kwargs):
+            return {'date': kwargs['selected_date'], 'staff_uuid': B, 'jobs': [], 'error': '', 'today': '2026-11-05'}
+        with patch.object(m, 'run', side_effect=day) as fetch:
+            result = m.run_week(staff=B, selected_date='2026-11-05')
+        self.assertEqual(len(result['week_days']), 7)
+        self.assertEqual(fetch.call_count, 7)
+        self.assertTrue(all(call.kwargs['staff'] == B for call in fetch.call_args_list))
+        self.assertEqual(result['week_start'], '2026-11-02')
+        self.assertEqual(result['week_end'], '2026-11-08')
+        self.assertTrue(all(not call.kwargs.get('poll_alerts') for call in fetch.call_args_list))
+
+    def test_setup_does_not_fetch_seven_days(self):
+        with patch.object(m, 'run', return_value={'needs_setup': True}) as fetch:
+            self.assertEqual(m.run_week(selected_date='2026-11-05')['week_days'], [])
+            self.assertEqual(fetch.call_count, 1)
