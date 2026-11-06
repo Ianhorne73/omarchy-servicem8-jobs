@@ -55,8 +55,8 @@ Licensed under MIT; see LICENSE. The ServiceM8 name and icon remain the property
 
 Validate with `omarchy plugin validate .` and run the backend tests above. Run `python3 build_release.py` to create a release ZIP in `dist/` from an explicit file allowlist. It excludes Git history, local configuration, caches and development previews. Never publish a copy of your installed configuration directory.
 
-The existing Git history contains personal staff names and account staff IDs in the initial revision. No embedded API key was found in the reviewed revisions. The current files remove those runtime defaults, but publishing the existing repository would still expose its old revisions. For a release with no historical account details, extract the release ZIP into a new empty repository and publish that clean repository. The original repository has not been rewritten.
+Repository history has been sanitized to replace personal staff details and account IDs with synthetic examples, and commit identities with generic contributor metadata. No embedded API key was found in the reviewed revisions. Release ZIPs exclude Git metadata and local account data.
 
-The `servicem8.jobs` identifier and author field are maintainer attribution and preserve compatibility with existing installations; they never select a ServiceM8 user. All account names and staff IDs come from the user’s connected account.
+The plugin identifier is `servicem8.jobs` and the author field uses generic contributor attribution. Existing manual installations using the old identifier must replace their bar entry with `servicem8.jobs` and use a matching plugin folder name. Saved API settings remain in the same private configuration directory. All account names and staff IDs come from the user’s connected account.
 
 The marketplace publishing instructions are at https://plugins.omarchy.org/publish.html. Submit the clean public repository after checking its license, assets and README. This preparation does not submit a listing or push a repository.
