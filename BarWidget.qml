@@ -283,7 +283,7 @@ Ui.BarWidget {
                 width: parent.width
                 spacing: 8
                 Text { text: root.weekMode ? "My Jobs · Week" : root.selectedDate ? "My Jobs" : "My Jobs Today"; color: root.ink; font.pixelSize: 23; font.bold: true }
-                Text { width: parent.width; text: (root.report.staff_name || "Choose staff") + " · " + root.dateLabel(root.report.date) + " · Brisbane time"; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: root.ink; opacity: 0.7; font.pixelSize: 12 }
+                Text { width: parent.width; text: (root.report.staff_name || "Choose staff") + " · " + root.dateLabel(root.report.date) + " · Local time"; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: root.ink; opacity: 0.7; font.pixelSize: 12 }
                 Row {
                     width: parent.width
                     spacing: 8

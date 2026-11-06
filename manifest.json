@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "servicem8.jobs",
   "name": "My Jobs Today",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "author": "My Jobs Today contributors",
   "description": "ServiceM8 jobs with staff selection and calendar browsing",
   "kinds": [

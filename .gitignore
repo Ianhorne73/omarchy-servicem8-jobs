@@ -7,3 +7,8 @@ preferences.json
 jobs-*.json
 *.log
 menubar-preview.html
+dist/
+*.pem
+*.key
+alerts-*.json
+refresh.lock

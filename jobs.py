@@ -18,7 +18,22 @@ import urllib.parse
 import urllib.request
 from zoneinfo import ZoneInfo
 
-TZ = ZoneInfo('Australia/Brisbane')
+def local_timezone():
+    """Use this computer's timezone, including daylight saving transitions."""
+    configured = os.environ.get('TZ', '').lstrip(':')
+    if configured:
+        try:
+            return ZoneInfo(configured)
+        except (ValueError, KeyError):
+            pass
+    try:
+        with open('/etc/localtime', 'rb') as stream:
+            return ZoneInfo.from_file(stream)
+    except (OSError, ValueError):
+        return dt.timezone.utc
+
+
+TZ = local_timezone()
 CONFIG = Path.home() / '.config/omarchy/servicem8'
 STATE = Path.home() / '.cache/omarchy/servicem8'
 BASE = 'https://api.servicem8.com/api_1.0/'
@@ -26,6 +41,7 @@ BASE = 'https://api.servicem8.com/api_1.0/'
 
 def atomic_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
     fd, name = tempfile.mkstemp(dir=path.parent)
     try:
         with os.fdopen(fd, 'w') as stream:
@@ -34,6 +50,12 @@ def atomic_json(path, value):
     finally:
         if os.path.exists(name):
             os.unlink(name)
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Never forward the API key to a redirect destination.
+        raise urllib.error.HTTPError(req.full_url, code, 'Redirect refused', headers, fp)
 
 
 class Api:
@@ -47,7 +69,7 @@ class Api:
         request = urllib.request.Request(url, headers={
             'X-API-Key': self.key, 'Accept': 'application/json',
             'User-Agent': 'Omarchy-My-Jobs/1.0'})
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=20) as response:
             return json.load(response), response.headers.get('x-next-cursor')
 
     def one(self, resource, uuid):
@@ -264,6 +286,7 @@ def run(force=False, save=False, staff=None, default_staff=None, selected_date=N
              'staff_uuid': '', 'staff_name': '', 'default_staff': '',
              'needs_setup': False, 'needs_staff': False, 'alerts_enabled': False, 'error': ''}
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
+    STATE.chmod(0o700)
     with (STATE / 'refresh.lock').open('a') as lock:
         os.chmod(STATE / 'refresh.lock', 0o600)
         fcntl.flock(lock, fcntl.LOCK_EX)

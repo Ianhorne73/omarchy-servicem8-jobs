@@ -11,6 +11,8 @@ from unittest.mock import patch
 spec = importlib.util.spec_from_file_location('jobs', Path(__file__).with_name('jobs.py'))
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
+# Deterministic schedule fixtures, independent of the test machine timezone.
+m.TZ = m.ZoneInfo("Australia/Brisbane")
 NOW = dt.datetime(2026, 10, 31, 10, tzinfo=m.TZ)
 A, B, C = ['00000000-0000-4000-8000-' + str(i).zfill(12) for i in range(3)]
 STAFF = A
@@ -243,7 +245,7 @@ class AccountSetupTests(unittest.TestCase):
         self.assertEqual(result['staff_name'], 'Current')
         self.assertEqual(m.read_json(self.config/'preferences.json')['account'], ACCOUNT)
 
-if __name__ == '__main__': unittest.main()
+
 
 
 class AlertTests(unittest.TestCase):
@@ -338,3 +340,44 @@ class WeekTests(unittest.TestCase):
         with patch.object(m, 'run', return_value={'needs_setup': True}) as fetch:
             self.assertEqual(m.run_week(selected_date='2026-11-05')['week_days'], [])
             self.assertEqual(fetch.call_count, 1)
+
+
+class ReleaseSecurityTests(unittest.TestCase):
+    def test_json_storage_repairs_public_directory_permissions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder) / 'public'
+            directory.mkdir(mode=0o755)
+            m.atomic_json(directory / 'credentials.json', {'api_key': 'synthetic-key'})
+            self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+            self.assertEqual((directory / 'credentials.json').stat().st_mode & 0o777, 0o600)
+
+    def test_api_redirect_refused_without_forwarding_key(self):
+        request = m.urllib.request.Request(m.BASE + 'staff.json', headers={'X-API-Key': 'synthetic-key'})
+        with self.assertRaises(m.urllib.error.HTTPError):
+            m.NoRedirect().redirect_request(request, None, 302, 'Found', {}, 'https://example.invalid')
+
+    def test_configured_timezone_observes_dst(self):
+        with patch.dict(m.os.environ, {'TZ': 'Europe/London'}):
+            zone = m.local_timezone()
+        self.assertEqual(dt.datetime(2026, 1, 1, tzinfo=zone).utcoffset(), dt.timedelta(0))
+        self.assertEqual(dt.datetime(2026, 7, 1, tzinfo=zone).utcoffset(), dt.timedelta(hours=1))
+
+    def test_api_key_stays_in_header_and_never_enters_report(self):
+        key = 'synthetic-key-for-test'
+        opener = unittest.mock.MagicMock()
+        response = opener.open.return_value.__enter__.return_value
+        response.read.return_value = b'[]'
+        response.headers.get.return_value = None
+        with patch.object(m.urllib.request, 'build_opener', return_value=opener):
+            m.Api(key).request('staff')
+        request = opener.open.call_args.args[0]
+        self.assertNotIn(key, request.full_url)
+        self.assertEqual(request.get_header('X-api-key'), key)
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(m, 'CONFIG', Path(folder)/'config'), patch.object(m, 'STATE', Path(folder)/'state'), patch('sys.stdin', io.StringIO(key+'\n')), patch.object(m, 'staff_list', return_value=PEOPLE):
+                report = m.run(save=True)
+        self.assertNotIn(key, json.dumps(report))
+
+
+if __name__ == '__main__':
+    unittest.main()
