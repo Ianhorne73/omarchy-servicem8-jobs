@@ -240,7 +240,7 @@ Ui.BarWidget {
             anchors.centerIn: parent
             spacing: Style.space(6)
             Image {
-                source: Qt.resolvedUrl("servicem8-icon.png")
+                source: Qt.resolvedUrl("schedule-icon.svg")
                 width: Style.space(18)
                 height: width
                 anchors.verticalCenter: parent.verticalCenter

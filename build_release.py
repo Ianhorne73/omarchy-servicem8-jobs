@@ -4,7 +4,7 @@ from pathlib import Path
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-FILES = ("manifest.json", "BarWidget.qml", "jobs.py", "servicem8-icon.png",
+FILES = ("manifest.json", "BarWidget.qml", "jobs.py", "schedule-icon.svg",
          "monochrome.frag", "monochrome.frag.qsb", "README.md", "LICENSE",
          "build_release.py", "test_jobs.py", ".gitignore")
 
