@@ -7,7 +7,7 @@ A ServiceM8 schedule widget for the Omarchy Quickshell bar. Browse a staff membe
 - Omarchy with the Quickshell shell and `bar-widget` plugin support (Quattro); this is not a Waybar module.
 - Python 3.9+ with system timezone data, Git for installation, and an internet connection to ServiceM8.
 - Your own ServiceM8 account and API key with read access to Staff, Job Activities (schedules), Job Allocations, Jobs and Companies (customers). Job Contacts read access enables site contact phone numbers; missing contact permission does not hide jobs.
-- Optional: `wl-copy` (wl-clipboard) for clipboard actions, `notify-send` (libnotify) for alerts, and `xdg-open` (xdg-utils) for notification links. Job and map links open in your default browser.
+- Optional: `wl-copy` (wl-clipboard) for clipboard actions, the system `libnotify` library for alerts, and `xdg-open` (xdg-utils) for notification links. Alerts use Python's built-in ctypes and libnotify directly, with no extra Python packages. Job and map links open in your default browser.
 
 ## Install
 
@@ -20,7 +20,7 @@ omarchy plugin enable servicem8.jobs --section right
 
 The plugin installs under `~/.config/omarchy/plugins/servicem8.jobs/`. Omarchy manages the bar entry; there is no custom install script, privileged command or background service. Enabling explicitly adds the widget to your bar. No existing configuration is replaced by this repository.
 
-For manual installation, copy `manifest.json`, `BarWidget.qml`, `jobs.py`, `schedule-icon.svg` and `monochrome.frag.qsb` into that folder. Back up `~/.config/omarchy/shell.json` before adding `{ "id": "servicem8.jobs" }` to a bar layout section.
+For manual installation, copy `manifest.json`, `BarWidget.qml`, `jobs.py`, `notifications.py`, `schedule-icon.svg` and `monochrome.frag.qsb` into that folder. Back up `~/.config/omarchy/shell.json` before adding `{ "id": "servicem8.jobs" }` to a bar layout section.
 
 ## First connection
 
@@ -66,6 +66,8 @@ The API key is stored locally in plaintext in `~/.config/omarchy/servicem8/crede
 
 Local data includes staff names, customer details, addresses, descriptions and site contact phone numbers. No analytics or developer server is used. Map actions send the chosen address to Google Maps. Desktop alerts may display customer/job information. Clipboard actions place the chosen value on your clipboard.
 
+Notification payloads (including the job identifier) reach the detached helper through a private standard-input pipe. The helper sends display text directly to the desktop notification service using libnotify; it does not invoke `notify-send`. Clipboard values reach `wl-copy` through standard input, with no added newline. Neither path puts customer text in process arguments, environment variables or temporary files. Notification history and clipboard managers may retain the displayed/copied data according to desktop settings. Clicking **Open job** intentionally opens its UUID-based ServiceM8 URL using `xdg-open`.
+
 Repository history uses synthetic staff examples and generic contributor identities. No embedded API key was found in the reviewed revisions. This cannot erase third-party copies of previously published history.
 
 ## Development and validation
@@ -75,6 +77,8 @@ python3 -m unittest discover -s . -p 'test_*.py' -v
 omarchy plugin validate .
 python3 build_release.py
 ```
+
+The unit tests use synthetic fixtures and make no ServiceM8 requests. Clipboard JavaScript tests additionally use Node when available. The optional real-notification integration tests need Linux `/proc`, `dbus-run-session`, system Python with PyGObject/Gio, libnotify, and permission to create a private Unix socket. They use an isolated notification service and a stub browser, never the desktop notification service. Missing prerequisites produce an explicit skip; a skipped integration test is not a desktop validation pass.
 
 The release ZIP in `dist/` includes an explicit file allowlist and excludes Git metadata, local account settings, caches and development previews. Never publish a copy of your installed configuration directory.
 
@@ -103,6 +107,10 @@ Prepared for the [Omarchy plugin marketplace](https://plugins.omarchy.org/publis
 - Maintainer notes: ServiceM8 day/week schedule bar widget. Requires Omarchy Quickshell with bar-widget support, Python 3.9+, system timezone data and the user’s own ServiceM8 API key. Read access to Staff, Job Activities, Job Allocations, Jobs and Companies; Job Contacts is optional for phone details. Optional wl-clipboard, libnotify and xdg-utils. First use requires account setup and staff selection. Alerts default off. No custom installation hooks, elevated privileges or background service. MIT code and original schedule icon. Installation, removal, local credential storage and cache deletion are documented above.
 
 Open the [submission form](https://github.com/omacom/omarchy-plugin-marketplace/issues/new?template=submit-plugin.yml), select the values above, and complete its required ownership/configuration/license acknowledgements. A public repository is required. Preparing this repository does not create the submission issue.
+
+## Changes in 1.5.5
+
+Fixes the marketplace review's process-command-line exposure: schedule alerts use private stdin and direct libnotify calls, and all clipboard actions use stdin. Adds regression coverage for notification transport, invalid input, action/close/timeout behavior, and clipboard command construction.
 
 ## Changes in 1.5.4
 

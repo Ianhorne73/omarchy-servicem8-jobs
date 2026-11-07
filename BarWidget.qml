@@ -91,6 +91,7 @@ Ui.BarWidget {
         if (copier.running) return
         copier.value = String(value)
         copier.label = label
+        copier.stdinEnabled = true
         copier.running = true
     }
     property bool weekMode: false
@@ -202,7 +203,11 @@ Ui.BarWidget {
         id: copier
         property string value: ""
         property string label: ""
-        command: ["wl-copy", "--", value]
+        command: ["wl-copy"]
+        onStarted: {
+            write(value)
+            stdinEnabled = false // Close after queued bytes are written: wl-copy reads to EOF.
+        }
         onExited: function(code, status) {
             root.lastCopiedText = code === 0 ? value : ""
             value = ""

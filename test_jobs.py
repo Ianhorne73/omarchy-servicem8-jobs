@@ -19,6 +19,19 @@ STAFF = A
 PEOPLE = [{'uuid': A, 'name': 'Staff Alpha'}, {'uuid': B, 'name': 'Staff Beta'}]
 ACCOUNT = hashlib.sha256(b'dummy').hexdigest()[:24]
 
+def setUpModule():
+    # Tests must never contact ServiceM8, even if a fixture forgets an API mock.
+    global network_guard, attempted_network
+    network_guard = patch('urllib.request.OpenerDirector.open',
+                          side_effect=AssertionError('Live HTTP is forbidden in unit tests'))
+    attempted_network = network_guard.start()
+
+def tearDownModule():
+    try:
+        attempted_network.assert_not_called()
+    finally:
+        network_guard.stop()
+
 def seed(config, default=A):
     m.atomic_json(config/'credentials.json', {'api_key': 'dummy'})
     m.atomic_json(config/'preferences.json', {'account': ACCOUNT, 'staff': PEOPLE, 'default_staff': default})
@@ -77,7 +90,7 @@ class ScheduleTests(unittest.TestCase):
             seed(config)
             m.atomic_json(state/'jobs.json', {'date': '1999-01-01', 'jobs': [{'old': True}]})
             self.assertEqual((config/'credentials.json').stat().st_mode & 0o777, 0o600)
-            with patch.object(m, 'CONFIG', config), patch.object(m, 'STATE', state), patch.object(m, 'scheduled_jobs', side_effect=OSError):
+            with patch.object(m, 'CONFIG', config), patch.object(m, 'STATE', state), patch.object(m, 'staff_list', return_value=PEOPLE), patch.object(m, 'scheduled_jobs', side_effect=OSError):
                 result = m.run(force=True)
                 self.assertEqual(result['jobs'], [])
                 self.assertTrue(result['error'])
@@ -128,7 +141,7 @@ class UserSelectionTests(unittest.TestCase):
             config, state = Path(folder)/'config', Path(folder)/'state'
             chosen = B
             seed(config)
-            with patch.object(m, 'CONFIG', config), patch.object(m, 'STATE', state):
+            with patch.object(m, 'CONFIG', config), patch.object(m, 'STATE', state), patch.object(m, 'scheduled_jobs', return_value=[]):
                 result = m.run(default_staff=chosen)
                 self.assertEqual(result['default_staff'], chosen)
                 self.assertEqual(result['staff_uuid'], chosen)

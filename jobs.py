@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only ServiceM8 schedule for the Omarchy bar. No third-party dependencies."""
+"""Read-only ServiceM8 schedule for the Omarchy bar. No third-party Python packages."""
 import argparse
 import subprocess
 import html
@@ -17,6 +17,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from zoneinfo import ZoneInfo
+from notifications import show_notification
+
+MAX_NOTIFICATION_INPUT = 65536
 
 def local_timezone():
     """Use this computer's timezone, including daylight saving transitions."""
@@ -258,23 +261,46 @@ def poll_notifications(account, staff, date, jobs, session=None):
     for uid, title, job, detail in events:
         body = '#' + job['number'] + ' · ' + job['customer'] + '\n' + detail
         try:
-            subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--notify-job',
-                              str(uuid.UUID(uid)), '--notification-title', title,
-                              '--notification-body', body], stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, start_new_session=True)
+            payload = json.dumps({'uuid': str(uuid.UUID(uid)), 'title': title, 'body': body})
+            if len(payload) > MAX_NOTIFICATION_INPUT:
+                continue
+            child = subprocess.Popen(
+                [sys.executable, str(Path(__file__).resolve()), '--notify-job'],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                text=True, encoding='utf-8', start_new_session=True)
+            # Do not wait for the alert's lifetime. Closing the pipe supplies EOF
+            # without putting private text in argv, the environment or a file.
+            with child.stdin:
+                child.stdin.write(payload)
         except OSError:
             pass
 
 
 def notification_action(uid, title, body):
     uid = str(uuid.UUID(uid))
-    result = subprocess.run(['notify-send', '--app-name=ServiceM8', '--icon=appointment-soon',
-                             '--action=default=Open job', '--wait', '--expire-time=10000',
-                             '--', html.escape('ServiceM8 · ' + title), html.escape(body)],
-                            capture_output=True, text=True, timeout=120)
-    if result.stdout.strip() == 'default':
+    # libnotify sends the text directly over the session bus. A notify-send
+    # subprocess would expose it in argv even if this helper used stdin.
+    if show_notification(html.escape('ServiceM8 · ' + title), html.escape(body)):
         subprocess.Popen(['xdg-open', 'https://go.servicem8.com/OpenJob/' + uid],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def notification_from_stdin():
+    """Read a bounded private payload; malformed input never gets echoed."""
+    try:
+        raw = sys.stdin.read(MAX_NOTIFICATION_INPUT + 1)
+        if len(raw) > MAX_NOTIFICATION_INPUT:
+            return False
+        payload = json.loads(raw)
+        if not isinstance(payload, dict) or set(payload) != {'uuid', 'title', 'body'}:
+            return False
+        if any(not isinstance(value, str) or '\0' in value for value in payload.values()):
+            return False
+        notification_action(payload['uuid'], payload['title'], payload['body'])
+        return True
+    except (ValueError, OSError):
+        # Alerts are optional. Never fall back to a command-line text transport.
+        return False
 
 
 def run(force=False, save=False, staff=None, default_staff=None, selected_date=None, alerts=None, poll_alerts=False):
@@ -399,13 +425,10 @@ if __name__ == '__main__':
     parser.add_argument('--set-alerts', choices=['on', 'off'])
     parser.add_argument('--poll-alerts', action='store_true')
     parser.add_argument('--week', action='store_true')
-    parser.add_argument('--notify-job')
-    parser.add_argument('--notification-title', default='Schedule updated')
-    parser.add_argument('--notification-body', default='')
+    parser.add_argument('--notify-job', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.notify_job:
-        notification_action(args.notify_job, args.notification_title, args.notification_body)
-        sys.exit(0)
+        sys.exit(0 if notification_from_stdin() else 1)
     if args.week:
         print(json.dumps(run_week(force=args.force, staff=args.staff, selected_date=args.date)))
         sys.exit(0)
