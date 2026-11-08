@@ -20,7 +20,7 @@ omarchy plugin enable servicem8.jobs --section right
 
 The plugin installs under `~/.config/omarchy/plugins/servicem8.jobs/`. Omarchy manages the bar entry; there is no custom install script, privileged command or background service. Enabling explicitly adds the widget to your bar. No existing configuration is replaced by this repository.
 
-For manual installation, copy `manifest.json`, `BarWidget.qml`, `jobs.py`, `notifications.py`, `schedule-icon.svg` and `monochrome.frag.qsb` into that folder. Back up `~/.config/omarchy/shell.json` before adding `{ "id": "servicem8.jobs" }` to a bar layout section.
+For manual installation, copy `manifest.json`, `BarWidget.qml`, `jobs.py`, `notifications.py`, `servicem8-brand.png`, `schedule-icon.svg` and `monochrome.frag.qsb` into that folder. Back up `~/.config/omarchy/shell.json` before adding `{ "id": "servicem8.jobs" }` to a bar layout section.
 
 ## First connection
 
@@ -92,7 +92,7 @@ ServiceM8 API references: [authentication](https://developer.servicem8.com/docs/
 
 ## License and marketplace
 
-Code and the original schedule icon are covered by the [MIT license](LICENSE). ServiceM8 is a trademark of its respective owner; this project does not claim affiliation or endorsement. No ServiceM8 logo is distributed in the current release.
+Code and the original schedule icon are covered by the [MIT license](LICENSE). ServiceM8 is a trademark of its respective owner; this project does not claim affiliation or endorsement. The bundled ServiceM8 brand icon is used for the bar widget; the MIT license covers the code and original schedule icon, not the ServiceM8 branding.
 
 Prepared for the [Omarchy plugin marketplace](https://plugins.omarchy.org/publish.html). Submit this repository with category **Productivity**, tags **Bar** and **Quickshell**, and the maintainer notes below. The marketplace reviews listings; it does not certify plugin security.
 
@@ -104,7 +104,7 @@ Prepared for the [Omarchy plugin marketplace](https://plugins.omarchy.org/publis
 - Category: Productivity
 - Tags: Bar, Quickshell
 - Preview: omitted (optional); no customer screenshots are supplied.
-- Maintainer notes: ServiceM8 day/week schedule bar widget. Requires Omarchy Quickshell with bar-widget support, Python 3.9+, system timezone data and the user’s own ServiceM8 API key. Read access to Staff, Job Activities, Job Allocations, Jobs and Companies; Job Contacts is optional for phone details. Optional wl-clipboard, libnotify and xdg-utils. First use requires account setup and staff selection. Alerts default off. No custom installation hooks, elevated privileges or background service. MIT code and original schedule icon. Installation, removal, local credential storage and cache deletion are documented above.
+- Maintainer notes: ServiceM8 day/week schedule bar widget. Requires Omarchy Quickshell with bar-widget support, Python 3.9+, system timezone data and the user’s own ServiceM8 API key. Read access to Staff, Job Activities, Job Allocations, Jobs and Companies; Job Contacts is optional for phone details. Optional wl-clipboard, libnotify and xdg-utils. First use requires account setup and staff selection. Alerts default off. No custom installation hooks, elevated privileges or background service. MIT code and original schedule icon; bundled ServiceM8 brand icon remains the property of its respective owner. Installation, removal, local credential storage and cache deletion are documented above.
 
 Open the [submission form](https://github.com/omacom/omarchy-plugin-marketplace/issues/new?template=submit-plugin.yml), select the values above, and complete its required ownership/configuration/license acknowledgements. A public repository is required. Preparing this repository does not create the submission issue.
 
